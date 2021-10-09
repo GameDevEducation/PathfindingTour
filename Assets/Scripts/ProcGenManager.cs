@@ -8,7 +8,6 @@ using UnityEditor;
 using UnityEngine.SceneManagement;
 #endif // UNITY_EDITOR
 
-[System.Serializable]
 public class ProcGenData
 {
     public byte[,] BiomeMap_LowResolution;
@@ -17,14 +16,17 @@ public class ProcGenData
     public byte[,] BiomeMap;
     public float[,] BiomeStrengths;
 
-    public float[,] SlopeMap;    
+    public float[,] SlopeMap;
 }
 
 public class ProcGenManager : MonoBehaviour
 {
     [SerializeField] ProcGenConfigSO Config;
     [SerializeField] Terrain TargetTerrain;
-    [SerializeField] ProcGenData _ProcGenData;
+    [SerializeField] Texture2D Output_BiomeMap;
+    [SerializeField] Texture2D Output_SlopeMap;
+
+    ProcGenData WorkingData;
 
     Dictionary<TextureConfig, int> BiomeTextureToTerrainLayerIndex = new Dictionary<TextureConfig, int>();
 
@@ -50,7 +52,7 @@ public class ProcGenManager : MonoBehaviour
     {
         Undo.RecordObject(this, "Regenerate World");
 
-        _ProcGenData = new ProcGenData();
+        WorkingData = new ProcGenData();
 
         // cache the map resolution
         int mapResolution = TargetTerrain.terrainData.heightmapResolution;
@@ -193,8 +195,8 @@ public class ProcGenManager : MonoBehaviour
     void Perform_BiomeGeneration_LowResolution(int mapResolution)
     {
         // allocate the biome map and strength map
-        _ProcGenData.BiomeMap_LowResolution = new byte[mapResolution, mapResolution];
-        _ProcGenData.BiomeStrengths_LowResolution = new float[mapResolution, mapResolution];
+        WorkingData.BiomeMap_LowResolution = new byte[mapResolution, mapResolution];
+        WorkingData.BiomeStrengths_LowResolution = new float[mapResolution, mapResolution];
 
         // setup space for the seed points
         int numSeedPoints = Mathf.FloorToInt(mapResolution * mapResolution * Config.BiomeSeedPointDensity);
@@ -233,7 +235,7 @@ public class ProcGenManager : MonoBehaviour
         {
             for (int x = 0; x < mapResolution; ++x)
             {
-                float hue = ((float)_ProcGenData.BiomeMap_LowResolution[x, y] / (float)Config.NumBiomes);
+                float hue = ((float)WorkingData.BiomeMap_LowResolution[x, y] / (float)Config.NumBiomes);
 
                 biomeMap.SetPixel(x, y, Color.HSVToRGB(hue, 0.75f, 0.75f));
             }
@@ -285,9 +287,9 @@ public class ProcGenManager : MonoBehaviour
             Vector2Int workingLocation = workingList.Dequeue();
 
             // set the biome
-            _ProcGenData.BiomeMap_LowResolution[workingLocation.x, workingLocation.y] = biomeIndex;
+            WorkingData.BiomeMap_LowResolution[workingLocation.x, workingLocation.y] = biomeIndex;
             visited[workingLocation.x, workingLocation.y] = true;
-            _ProcGenData.BiomeStrengths_LowResolution[workingLocation.x, workingLocation.y] = targetIntensity[workingLocation.x, workingLocation.y];
+            WorkingData.BiomeStrengths_LowResolution[workingLocation.x, workingLocation.y] = targetIntensity[workingLocation.x, workingLocation.y];
 
             // traverse the neighbours
             for (int neighbourIndex = 0; neighbourIndex < NeighbourOffsets.Length; ++neighbourIndex)
@@ -323,9 +325,9 @@ public class ProcGenManager : MonoBehaviour
 
     byte CalculateHighResBiomeIndex(int lowResMapSize, int lowResX, int lowResY, float fractionX, float fractionY)
     {
-        float A = _ProcGenData.BiomeMap_LowResolution[lowResX,     lowResY];
-        float B = (lowResX + 1) < lowResMapSize ? _ProcGenData.BiomeMap_LowResolution[lowResX + 1, lowResY] : A;
-        float C = (lowResY + 1) < lowResMapSize ? _ProcGenData.BiomeMap_LowResolution[lowResX,     lowResY + 1] : A;
+        float A = WorkingData.BiomeMap_LowResolution[lowResX,     lowResY];
+        float B = (lowResX + 1) < lowResMapSize ? WorkingData.BiomeMap_LowResolution[lowResX + 1, lowResY] : A;
+        float C = (lowResY + 1) < lowResMapSize ? WorkingData.BiomeMap_LowResolution[lowResX,     lowResY + 1] : A;
         float D = 0;
 
         if ((lowResX + 1) >= lowResMapSize)
@@ -333,7 +335,7 @@ public class ProcGenManager : MonoBehaviour
         else if ((lowResY + 1) >= lowResMapSize)
             D = B;
         else
-            D = _ProcGenData.BiomeMap_LowResolution[lowResX + 1, lowResY + 1];
+            D = WorkingData.BiomeMap_LowResolution[lowResX + 1, lowResY + 1];
 
         // perform bilinear filtering
         float filteredIndex = A * (1 - fractionX) * (1 - fractionY) + B * fractionX * (1 - fractionY) *
@@ -362,8 +364,8 @@ public class ProcGenManager : MonoBehaviour
     void Perform_BiomeGeneration_HighResolution(int lowResMapSize, int highResMapSize)
     {
         // allocate the biome map and strength map
-        _ProcGenData.BiomeMap = new byte[highResMapSize, highResMapSize];
-        _ProcGenData.BiomeStrengths = new float[highResMapSize, highResMapSize];
+        WorkingData.BiomeMap = new byte[highResMapSize, highResMapSize];
+        WorkingData.BiomeStrengths = new float[highResMapSize, highResMapSize];
 
         // calculate map scale
         float mapScale = (float)lowResMapSize / (float)highResMapSize;
@@ -379,27 +381,31 @@ public class ProcGenManager : MonoBehaviour
                 int lowResX = Mathf.FloorToInt(x * mapScale);
                 float xFraction = x * mapScale - lowResX;
 
-                _ProcGenData.BiomeMap[x, y] = CalculateHighResBiomeIndex(lowResMapSize, lowResX, lowResY, xFraction, yFraction);
+                WorkingData.BiomeMap[x, y] = CalculateHighResBiomeIndex(lowResMapSize, lowResX, lowResY, xFraction, yFraction);
 
                 // this would do no interpolation - ie. point based
                 //BiomeMap[x, y] = BiomeMap_LowResolution[lowResX, lowResY];
             }
         }
 
-        // save out the biome map
-        Texture2D biomeMap = new Texture2D(highResMapSize, highResMapSize, TextureFormat.RGB24, false);
+        // convert the biome map to a texture
+        Output_BiomeMap = new Texture2D(highResMapSize, highResMapSize, TextureFormat.RGB24, false);
         for (int y = 0; y < highResMapSize; ++y)
         {
             for (int x = 0; x < highResMapSize; ++x)
             {
-                float hue = ((float)_ProcGenData.BiomeMap[x, y] / (float)Config.NumBiomes);
+                float hue = ((float)WorkingData.BiomeMap[x, y] / (float)Config.NumBiomes);
 
-                biomeMap.SetPixel(x, y, Color.HSVToRGB(hue, 0.75f, 0.75f));
+                Output_BiomeMap.SetPixel(x, y, Color.HSVToRGB(hue, 0.75f, 0.75f));
             }
         }
-        biomeMap.Apply();
+        Output_BiomeMap.Apply();
 
-        System.IO.File.WriteAllBytes("BiomeMap_HighResolution.png", biomeMap.EncodeToPNG());        
+        string assetPath = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(SceneManager.GetActiveScene().path), "ProcGen_BiomeMap");
+        System.IO.File.Delete(assetPath);
+        AssetDatabase.CreateAsset(Output_BiomeMap, assetPath);
+
+        System.IO.File.WriteAllBytes("BiomeMap_HighResolution.png", Output_BiomeMap.EncodeToPNG());        
     }
 
     void Perform_HeightMapModification(int mapResolution, int alphaMapResolution)
@@ -428,7 +434,7 @@ public class ProcGenManager : MonoBehaviour
 
             foreach(var modifier in modifiers)
             {
-                modifier.Execute(mapResolution, heightMap, TargetTerrain.terrainData.heightmapScale, _ProcGenData.BiomeMap, biomeIndex, biome);
+                modifier.Execute(mapResolution, heightMap, TargetTerrain.terrainData.heightmapScale, WorkingData.BiomeMap, biomeIndex, biome);
             }
         }
 
@@ -446,14 +452,33 @@ public class ProcGenManager : MonoBehaviour
         TargetTerrain.terrainData.SetHeights(0, 0, heightMap);
 
         // generate the slope map
-        _ProcGenData.SlopeMap = new float[alphaMapResolution, alphaMapResolution];
+        WorkingData.SlopeMap = new float[alphaMapResolution, alphaMapResolution];
         for (int y = 0; y < alphaMapResolution; ++y)
         {
             for (int x = 0; x < alphaMapResolution; ++x)
             {
-                _ProcGenData.SlopeMap[x, y] = TargetTerrain.terrainData.GetInterpolatedNormal((float) x / alphaMapResolution, (float) y / alphaMapResolution).y;
+                WorkingData.SlopeMap[x, y] = TargetTerrain.terrainData.GetInterpolatedNormal((float) x / alphaMapResolution, (float) y / alphaMapResolution).y;
             }
-        }          
+        }
+
+        // convert the slope map to a texture
+        Output_SlopeMap = new Texture2D(alphaMapResolution, alphaMapResolution, TextureFormat.RGB24, false);
+        for (int y = 0; y < alphaMapResolution; ++y)
+        {
+            for (int x = 0; x < alphaMapResolution; ++x)
+            {
+                float intensity = WorkingData.SlopeMap[x, y];
+
+                Output_SlopeMap.SetPixel(x, y, new Color(intensity, intensity, intensity));
+            }
+        }
+        Output_SlopeMap.Apply();
+
+        string assetPath = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(SceneManager.GetActiveScene().path), "ProcGen_SlopeMap");
+        System.IO.File.Delete(assetPath);
+        AssetDatabase.CreateAsset(Output_SlopeMap, assetPath);
+
+        System.IO.File.WriteAllBytes("SlopeMap_HighResolution.png", Output_SlopeMap.EncodeToPNG());
     }
 
     public int GetLayerForTexture(TextureConfig textureConfig)
@@ -489,7 +514,7 @@ public class ProcGenManager : MonoBehaviour
 
             foreach(var modifier in modifiers)
             {
-                modifier.Execute(this, mapResolution, heightMap, TargetTerrain.terrainData.heightmapScale, _ProcGenData.SlopeMap, alphaMaps, alphaMapResolution, _ProcGenData.BiomeMap, biomeIndex, biome);
+                modifier.Execute(this, mapResolution, heightMap, TargetTerrain.terrainData.heightmapScale, WorkingData.SlopeMap, alphaMaps, alphaMapResolution, WorkingData.BiomeMap, biomeIndex, biome);
             }
         }        
 
@@ -500,7 +525,7 @@ public class ProcGenManager : MonoBehaviour
 
             foreach(var modifier in modifiers)
             {
-                modifier.Execute(this, mapResolution, heightMap, TargetTerrain.terrainData.heightmapScale, _ProcGenData.SlopeMap, alphaMaps, alphaMapResolution);
+                modifier.Execute(this, mapResolution, heightMap, TargetTerrain.terrainData.heightmapScale, WorkingData.SlopeMap, alphaMaps, alphaMapResolution);
             }    
         }
 
@@ -523,7 +548,7 @@ public class ProcGenManager : MonoBehaviour
 
             foreach(var modifier in modifiers)
             {
-                modifier.Execute(transform, mapResolution, heightMap, TargetTerrain.terrainData.heightmapScale, _ProcGenData.SlopeMap, alphaMaps, alphaMapResolution, _ProcGenData.BiomeMap, biomeIndex, biome);
+                modifier.Execute(transform, mapResolution, heightMap, TargetTerrain.terrainData.heightmapScale, WorkingData.SlopeMap, alphaMaps, alphaMapResolution, WorkingData.BiomeMap, biomeIndex, biome);
             }
         }        
     }
