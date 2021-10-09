@@ -389,23 +389,24 @@ public class ProcGenManager : MonoBehaviour
         }
 
         // convert the biome map to a texture
-        Output_BiomeMap = new Texture2D(highResMapSize, highResMapSize, TextureFormat.RGB24, false);
+        Texture2D tempTexture = new Texture2D(highResMapSize, highResMapSize, TextureFormat.RGB24, false);
         for (int y = 0; y < highResMapSize; ++y)
         {
             for (int x = 0; x < highResMapSize; ++x)
             {
                 float hue = ((float)WorkingData.BiomeMap[x, y] / (float)Config.NumBiomes);
 
-                Output_BiomeMap.SetPixel(x, y, Color.HSVToRGB(hue, 0.75f, 0.75f));
+                tempTexture.SetPixel(x, y, Color.HSVToRGB(hue, 0.75f, 0.75f));
             }
         }
-        Output_BiomeMap.Apply();
+        tempTexture.Apply();
 
-        string assetPath = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(SceneManager.GetActiveScene().path), "ProcGen_BiomeMap");
-        System.IO.File.Delete(assetPath);
-        AssetDatabase.CreateAsset(Output_BiomeMap, assetPath);
+        string outputPath = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(SceneManager.GetActiveScene().path), "ProcGen_BiomeMap.png");
+        System.IO.File.Delete(outputPath);
+        System.IO.File.WriteAllBytes(outputPath, tempTexture.EncodeToPNG());
 
-        System.IO.File.WriteAllBytes("BiomeMap_HighResolution.png", Output_BiomeMap.EncodeToPNG());        
+        Debug.Log(outputPath);
+        Output_BiomeMap = AssetDatabase.LoadAssetAtPath<Texture2D>(outputPath);
     }
 
     void Perform_HeightMapModification(int mapResolution, int alphaMapResolution)
@@ -462,23 +463,23 @@ public class ProcGenManager : MonoBehaviour
         }
 
         // convert the slope map to a texture
-        Output_SlopeMap = new Texture2D(alphaMapResolution, alphaMapResolution, TextureFormat.RGB24, false);
+        Texture2D tempTexture = new Texture2D(alphaMapResolution, alphaMapResolution, TextureFormat.RGB24, false);
         for (int y = 0; y < alphaMapResolution; ++y)
         {
             for (int x = 0; x < alphaMapResolution; ++x)
             {
                 float intensity = WorkingData.SlopeMap[x, y];
 
-                Output_SlopeMap.SetPixel(x, y, new Color(intensity, intensity, intensity));
+                tempTexture.SetPixel(x, y, new Color(intensity, intensity, intensity));
             }
         }
-        Output_SlopeMap.Apply();
+        tempTexture.Apply();
 
-        string assetPath = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(SceneManager.GetActiveScene().path), "ProcGen_SlopeMap");
-        System.IO.File.Delete(assetPath);
-        AssetDatabase.CreateAsset(Output_SlopeMap, assetPath);
+        string outputPath = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(SceneManager.GetActiveScene().path), "ProcGen_SlopeMap.png");
+        System.IO.File.Delete(outputPath);
+        System.IO.File.WriteAllBytes(outputPath, tempTexture.EncodeToPNG());
 
-        System.IO.File.WriteAllBytes("SlopeMap_HighResolution.png", Output_SlopeMap.EncodeToPNG());
+        Output_SlopeMap = AssetDatabase.LoadAssetAtPath<Texture2D>(outputPath);
     }
 
     public int GetLayerForTexture(TextureConfig textureConfig)
