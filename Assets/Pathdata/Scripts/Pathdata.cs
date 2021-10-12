@@ -47,21 +47,32 @@ public class PathdataNode
     public Vector3Int GridPos;
     public EPathdataNodeAttributes Attributes;
     public ENeighbourFlags NeighbourFlags;
+    public int AreaID;
 
     public bool IsBoundary => Attributes.HasFlag(EPathdataNodeAttributes.IsBoundary);
     public bool IsWalkable => Attributes.HasFlag(EPathdataNodeAttributes.Walkable);
     public bool IsWater => Attributes.HasFlag(EPathdataNodeAttributes.HasWater);
+
+    public bool HasNeighbour_N => NeighbourFlags.HasFlag(ENeighbourFlags.North);
+    public bool HasNeighbour_NE => NeighbourFlags.HasFlag(ENeighbourFlags.NorthEast);
+    public bool HasNeighbour_E => NeighbourFlags.HasFlag(ENeighbourFlags.East);
+    public bool HasNeighbour_SE => NeighbourFlags.HasFlag(ENeighbourFlags.SouthEast);
+    public bool HasNeighbour_S => NeighbourFlags.HasFlag(ENeighbourFlags.South);
+    public bool HasNeighbour_SW => NeighbourFlags.HasFlag(ENeighbourFlags.SouthWest);
+    public bool HasNeighbour_W => NeighbourFlags.HasFlag(ENeighbourFlags.West);
+    public bool HasNeighbour_NW => NeighbourFlags.HasFlag(ENeighbourFlags.NorthWest);
 }
 
 [System.Serializable]
 public class Pathdata : ScriptableObject, ISerializationCallbackReceiver
 {
-    [SerializeField] EResolution Resolution = EResolution.NodeSize_1x1;
-    [SerializeField] Vector2Int Dimensions;
-    [SerializeField] Vector3 CellSize;
+    public EResolution Resolution = EResolution.NodeSize_1x1;
+    public Vector2Int Dimensions;
+    public Vector3 CellSize;
     [SerializeField] EPathdataNodeAttributes[] Attributes;
     [SerializeField] ENeighbourFlags[] NeighbourFlags;
     [SerializeField] float[] Heights;
+    [SerializeField] int[] AreaIDs;
 
     [System.NonSerialized] public PathdataNode[] Nodes;
 
@@ -83,6 +94,7 @@ public class Pathdata : ScriptableObject, ISerializationCallbackReceiver
         Nodes[nodeIndex].GridPos = new Vector3Int(column, row, 0);
         Nodes[nodeIndex].WorldPos = worldPos;
         Nodes[nodeIndex].Attributes = attributes;
+        Nodes[nodeIndex].AreaID = -1;
     }
 
     public void OnAfterDeserialize()
@@ -95,12 +107,13 @@ public class Pathdata : ScriptableObject, ISerializationCallbackReceiver
 
             Nodes[index].Attributes = Attributes[index];
             Nodes[index].NeighbourFlags = NeighbourFlags[index];
+            Nodes[index].AreaID = AreaIDs[index];
 
             int x = index % Dimensions.x;
             int y = (index - x) / Dimensions.x;
             Nodes[index].GridPos = new Vector3Int(x, y, 0);
 
-            Nodes[index].WorldPos = new Vector3(y * CellSize.x, Heights[index], x * CellSize.z);
+            Nodes[index].WorldPos = new Vector3((y + 0.5f) * CellSize.x, Heights[index], (x + 0.5f) * CellSize.z);
         }
     }
 
@@ -111,6 +124,7 @@ public class Pathdata : ScriptableObject, ISerializationCallbackReceiver
             Attributes = null;
             NeighbourFlags = null;
             Heights = null;
+            AreaIDs = null;
             return;
         }
 
@@ -118,11 +132,13 @@ public class Pathdata : ScriptableObject, ISerializationCallbackReceiver
         Attributes = new EPathdataNodeAttributes[Nodes.Length];
         NeighbourFlags = new ENeighbourFlags[Nodes.Length];
         Heights = new float[Nodes.Length];
+        AreaIDs = new int[Nodes.Length];
         for (int index = 0; index < Attributes.Length; ++index)
         {
             Attributes[index] = Nodes[index].Attributes;
             NeighbourFlags[index] = Nodes[index].NeighbourFlags;
             Heights[index] = Nodes[index].WorldPos.y;
+            AreaIDs[index] = Nodes[index].AreaID;
         }
     }
 

@@ -10,7 +10,7 @@ public class PathdataManagerEditor : Editor
     {
         DrawDefaultInspector();
 
-        if (GUILayout.Button("Generate Pathata"))
+        if (GUILayout.Button("Generate Pathdata"))
         {
             (serializedObject.targetObject as PathdataManager).OnEditorBuildPathdata();
         }

@@ -20,8 +20,13 @@ public class PathdataSet
 {
     public EResolution Resolution = EResolution.NodeSize_1x1;
     public float SlopeLimit = 45f;
+    public bool CanUseWater = false;
 
     public Pathdata Data;
+
+    public bool Debug_ShowAreas = false;
+    public bool Debug_ShowNodes = false;
+    public bool Debug_ShowEdges = false;
 }
 
 public class PathdataManager : MonoBehaviour
@@ -32,9 +37,6 @@ public class PathdataManager : MonoBehaviour
     [SerializeField] Texture2D Source_SlopeMap;
 
     [SerializeField] float WaterHeight = 15f;
-
-    [SerializeField] bool Debug_ShowNodes = false;
-    [SerializeField] bool Debug_ShowEdges = false;
 
     // Start is called before the first frame update
     void Start()
@@ -71,17 +73,32 @@ public class PathdataManager : MonoBehaviour
                 if ((node.WorldPos - cameraLocation).sqrMagnitude > (50 * 50))
                     continue;
 
-                DrawDebug(node);
+                DrawDebug(pathdataSet, node);
             }
         }
     }
 
-    void DrawDebug(PathdataNode node)
+    static Color[] AreaBank = new Color[] { Color.red, Color.black, Color.blue, Color.green, Color.cyan, Color.yellow, Color.magenta, Color.white };
+
+    void DrawDebug(PathdataSet pathdataSet, PathdataNode node)
     {
         if (node.IsBoundary)
             return;
 
-        if (Debug_ShowNodes)
+        // draw areas?
+        if (pathdataSet.Debug_ShowAreas)
+        {
+            if (node.AreaID < 1)
+                return;
+
+            Gizmos.color = AreaBank[node.AreaID % AreaBank.Length];
+            Gizmos.DrawLine(node.WorldPos, node.WorldPos + Vector3.up);
+
+            return;
+        }
+
+        // draw the nodes?
+        if (pathdataSet.Debug_ShowNodes)
         {
             if (node.IsWalkable)
                 Gizmos.color = Color.green;
@@ -93,25 +110,28 @@ public class PathdataManager : MonoBehaviour
             Gizmos.DrawLine(node.WorldPos, node.WorldPos + Vector3.up);
         }
 
-        if (Debug_ShowEdges)
+        // draw the edges
+        if (pathdataSet.Debug_ShowEdges)
         {
+            var pathdata = pathdataSet.Data;
+
             Gizmos.color = Color.white;
-            if (node.NeighbourFlags.HasFlag(ENeighbourFlags.North))
-                Gizmos.DrawLine(node.WorldPos, node.WorldPos + new Vector3(0, 1, 1));
-            if (node.NeighbourFlags.HasFlag(ENeighbourFlags.NorthEast))
-                Gizmos.DrawLine(node.WorldPos, node.WorldPos + new Vector3(1, 1, 1));
-            if (node.NeighbourFlags.HasFlag(ENeighbourFlags.East))
-                Gizmos.DrawLine(node.WorldPos, node.WorldPos + new Vector3(1, 1, 0));
-            if (node.NeighbourFlags.HasFlag(ENeighbourFlags.SouthEast))
-                Gizmos.DrawLine(node.WorldPos, node.WorldPos + new Vector3(1, 1, -1));
-            if (node.NeighbourFlags.HasFlag(ENeighbourFlags.South))
-                Gizmos.DrawLine(node.WorldPos, node.WorldPos + new Vector3(0, 1, -1));
-            if (node.NeighbourFlags.HasFlag(ENeighbourFlags.SouthWest))
-                Gizmos.DrawLine(node.WorldPos, node.WorldPos + new Vector3(-1, 1, -1));
-            if (node.NeighbourFlags.HasFlag(ENeighbourFlags.West))
-                Gizmos.DrawLine(node.WorldPos, node.WorldPos + new Vector3(-1, 1, 0));
-            if (node.NeighbourFlags.HasFlag(ENeighbourFlags.NorthWest))
-                Gizmos.DrawLine(node.WorldPos, node.WorldPos + new Vector3(-1, 1, 1));
+            if (node.HasNeighbour_N)
+                Gizmos.DrawLine(node.WorldPos + Vector3.up, pathdata.GetNode(node.GridPos + GridHelpers.Step_North).WorldPos);
+            if (node.HasNeighbour_NE)
+                Gizmos.DrawLine(node.WorldPos + Vector3.up, pathdata.GetNode(node.GridPos + GridHelpers.Step_NorthEast).WorldPos);
+            if (node.HasNeighbour_E)
+                Gizmos.DrawLine(node.WorldPos + Vector3.up, pathdata.GetNode(node.GridPos + GridHelpers.Step_East).WorldPos);
+            if (node.HasNeighbour_SE)
+                Gizmos.DrawLine(node.WorldPos + Vector3.up, pathdata.GetNode(node.GridPos + GridHelpers.Step_SouthEast).WorldPos);
+            if (node.HasNeighbour_S)
+                Gizmos.DrawLine(node.WorldPos + Vector3.up, pathdata.GetNode(node.GridPos + GridHelpers.Step_South).WorldPos);
+            if (node.HasNeighbour_SW)
+                Gizmos.DrawLine(node.WorldPos + Vector3.up, pathdata.GetNode(node.GridPos + GridHelpers.Step_SouthWest).WorldPos);
+            if (node.HasNeighbour_W)
+                Gizmos.DrawLine(node.WorldPos + Vector3.up, pathdata.GetNode(node.GridPos + GridHelpers.Step_West).WorldPos);
+            if (node.HasNeighbour_NW)
+                Gizmos.DrawLine(node.WorldPos + Vector3.up, pathdata.GetNode(node.GridPos + GridHelpers.Step_NorthWest).WorldPos);
         }
     }
 
@@ -144,11 +164,17 @@ public class PathdataManager : MonoBehaviour
 
         pathdataSet.Data = pathdata;
 
-        var pathdataSize = Source_Terrain.terrainData.heightmapResolution;
-        var heightMapScale = Source_Terrain.terrainData.heightmapScale;
-        pathdata.Initialise(pathdataSet.Resolution, new Vector2Int(pathdataSize, pathdataSize), heightMapScale);
+        // determine the pathdata size, allowing for scale
+        var pathdataSize = (Source_Terrain.terrainData.heightmapResolution - 1) / (int)pathdataSet.Resolution;
 
-        Internal_BuildPathdata(pathdata, pathdataSet);
+        // determine the scaled node size
+        var nodeSize = Source_Terrain.terrainData.heightmapScale;
+        nodeSize.x *= (int)pathdataSet.Resolution;
+        nodeSize.z *= (int)pathdataSet.Resolution;
+
+        pathdata.Initialise(pathdataSet.Resolution, new Vector2Int(pathdataSize, pathdataSize), nodeSize);
+
+        Internal_BuildPathdata(pathdata, pathdataSet, pathdataSize, nodeSize);
 
 #if UNITY_EDITOR
         // flag the asset as dirty and save it
@@ -157,28 +183,74 @@ public class PathdataManager : MonoBehaviour
 #endif // UNITY_EDITOR          
     }
 
-    void Internal_BuildPathdata(Pathdata pathdata, PathdataSet configuration)
+    float SampleHeightMap(float[,] heightMap, EResolution resolution, int row, int column)
+    {
+        float heightSum = 0f;
+        int numSamples = 0;
+
+        int range = (int)resolution + 1;
+        
+        // retrieve the key heightmap parameters
+        int heightMapSize = heightMap.GetLength(0);
+        int startingRow = row * (int)resolution;
+        int startingCol = column * (int)resolution;
+
+        // sum the height values
+        for (int workingRow = startingRow; workingRow < (startingRow + range) && workingRow < heightMapSize; ++workingRow)
+        {
+            for (int workingCol = startingCol; workingCol < (startingCol + range) && workingCol < heightMapSize; ++workingCol)
+            {
+                heightSum += heightMap[workingCol, workingRow];
+                ++numSamples;
+            }
+        }
+
+        return numSamples == 0 ? 0f : (heightSum / numSamples);
+    }
+
+    float SampleSlopeMap(EResolution resolution, int row, int column)
+    {
+        float minSlope = 1f;
+
+        int range = (int)resolution + 1;
+
+        // retrieve the key parameters
+        int startingRow = row * (int)resolution;
+        int startingCol = column * (int)resolution;
+
+        // sum the slope values
+        for (int workingRow = startingRow; workingRow < (startingRow + range) && workingRow < Source_SlopeMap.height; ++workingRow)
+        {
+            for (int workingCol = startingCol; workingCol < (startingCol + range) && workingCol < Source_SlopeMap.width; ++workingCol)
+            {
+                minSlope = Mathf.Min(Source_SlopeMap.GetPixel(workingRow, workingCol).r, minSlope);
+            }
+        }
+
+        return minSlope;
+    }
+
+    void Internal_BuildPathdata(Pathdata pathdata, PathdataSet configuration, int pathdataSize, Vector3 nodeSize)
     {
         // extract key data
-        var pathdataSize = Source_Terrain.terrainData.heightmapResolution;
-        var heightMapScale = Source_Terrain.terrainData.heightmapScale;
-        var heightMap = Source_Terrain.terrainData.GetHeights(0, 0, pathdataSize, pathdataSize);
+        var heightMap = Source_Terrain.terrainData.GetHeights(0, 0, 
+                                                              Source_Terrain.terrainData.heightmapResolution, 
+                                                              Source_Terrain.terrainData.heightmapResolution);
         var cosSlopeLimit = Mathf.Cos(configuration.SlopeLimit * Mathf.Deg2Rad);
 
-        // process the height map
+        // build the nodes
         for (int row = 0; row < pathdataSize; ++row)
         {
-            float textureU = (float)row / (float)pathdataSize;
-            
             for (int column = 0; column < pathdataSize; ++column)
             {
-                float textureV = (float)column / (float)pathdataSize;
+                // retrieve the height
+                float height = SampleHeightMap(heightMap, configuration.Resolution, row, column);
 
                 // generate world pos
-                Vector3 worldPos = new Vector3(row * heightMapScale.z, heightMap[column, row] * heightMapScale.y, column * heightMapScale.x);
+                Vector3 worldPos = new Vector3((row + 0.5f) * nodeSize.z, height * nodeSize.y, (column + 0.5f) * nodeSize.x);
 
                 // determine the slope
-                float cosSlope = Source_SlopeMap.GetPixelBilinear(textureU, textureV).r;
+                float cosSlope = SampleSlopeMap(configuration.Resolution, row, column);
 
                 // build the attributes
                 EPathdataNodeAttributes attributes = EPathdataNodeAttributes.None;
@@ -207,19 +279,21 @@ public class PathdataManager : MonoBehaviour
                 if (node.IsBoundary)
                     continue;
 
-                UpdateNeighbourFlags(node, pathdata, ENeighbourFlags.North, GridHelpers.Step_North);
-                UpdateNeighbourFlags(node, pathdata, ENeighbourFlags.NorthEast, GridHelpers.Step_NorthEast);
-                UpdateNeighbourFlags(node, pathdata, ENeighbourFlags.East, GridHelpers.Step_East);
-                UpdateNeighbourFlags(node, pathdata, ENeighbourFlags.SouthEast, GridHelpers.Step_SouthEast);
-                UpdateNeighbourFlags(node, pathdata, ENeighbourFlags.South, GridHelpers.Step_South);
-                UpdateNeighbourFlags(node, pathdata, ENeighbourFlags.SouthWest, GridHelpers.Step_SouthWest);
-                UpdateNeighbourFlags(node, pathdata, ENeighbourFlags.West, GridHelpers.Step_West);
-                UpdateNeighbourFlags(node, pathdata, ENeighbourFlags.NorthWest, GridHelpers.Step_NorthWest);
+                UpdateNeighbourFlags(node, pathdata, configuration, ENeighbourFlags.North, GridHelpers.Step_North);
+                UpdateNeighbourFlags(node, pathdata, configuration, ENeighbourFlags.NorthEast, GridHelpers.Step_NorthEast);
+                UpdateNeighbourFlags(node, pathdata, configuration, ENeighbourFlags.East, GridHelpers.Step_East);
+                UpdateNeighbourFlags(node, pathdata, configuration, ENeighbourFlags.SouthEast, GridHelpers.Step_SouthEast);
+                UpdateNeighbourFlags(node, pathdata, configuration, ENeighbourFlags.South, GridHelpers.Step_South);
+                UpdateNeighbourFlags(node, pathdata, configuration, ENeighbourFlags.SouthWest, GridHelpers.Step_SouthWest);
+                UpdateNeighbourFlags(node, pathdata, configuration, ENeighbourFlags.West, GridHelpers.Step_West);
+                UpdateNeighbourFlags(node, pathdata, configuration, ENeighbourFlags.NorthWest, GridHelpers.Step_NorthWest);
             }
         }
+
+        BuildAreaIds(pathdata);
     }
 
-    void UpdateNeighbourFlags(PathdataNode currentNode, Pathdata pathdata, 
+    void UpdateNeighbourFlags(PathdataNode currentNode, Pathdata pathdata, PathdataSet configuration,
                               ENeighbourFlags directionFlag, Vector3Int offset)
     {
         var neighbour = pathdata.GetNode(currentNode.GridPos + offset);
@@ -231,5 +305,101 @@ public class PathdataManager : MonoBehaviour
         // link only if both the same
         if ((neighbour.IsWalkable && currentNode.IsWalkable) || (neighbour.IsWater && currentNode.IsWater))
             currentNode.NeighbourFlags |= directionFlag;
+
+        // if we can connect to water then allow those connections
+        if (configuration.CanUseWater && 
+            ((neighbour.IsWalkable && currentNode.IsWater) || (neighbour.IsWater && currentNode.IsWalkable)))
+        {
+            currentNode.NeighbourFlags |= directionFlag;
+        }
+    }
+
+    void BuildAreaIds(Pathdata pathdata)
+    {
+        bool[] flaggedForProcessing = new bool[pathdata.Dimensions.x * pathdata.Dimensions.y];
+
+        int currentAreaID = 1;
+        int minAreaSize = int.MaxValue;
+        int maxAreaSize = int.MinValue;
+        for (int index = 0; index < pathdata.Nodes.Length; ++index)
+        {
+            // skip if already visited
+            if (pathdata.Nodes[index].AreaID >= 0)
+                continue;
+
+            // node has no connections - mark as isolated
+            if (pathdata.Nodes[index].NeighbourFlags == ENeighbourFlags.None)
+            {
+                pathdata.Nodes[index].AreaID = 0;
+                continue;
+            }
+
+            int areaSize = FloodFillArea(pathdata.Nodes[index], pathdata, currentAreaID, flaggedForProcessing);
+
+            ++currentAreaID;
+
+            minAreaSize = Mathf.Min(areaSize, minAreaSize);
+            maxAreaSize = Mathf.Max(areaSize, maxAreaSize);
+        }
+
+        Debug.Log("Min: " + minAreaSize + ", Max: " + maxAreaSize + ", Total: " + currentAreaID);
+    }
+
+    int FloodFillArea(PathdataNode seedNode, Pathdata pathdata, int areaID, bool[] flaggedForProcessing)
+    {
+        Queue<Vector3Int> nodesToProcess = new Queue<Vector3Int>();
+        nodesToProcess.Enqueue(seedNode.GridPos);
+        int areaSize = 0;
+
+        // while we have things to process
+        while (nodesToProcess.Count > 0)
+        {
+            var node = pathdata.GetNode(nodesToProcess.Dequeue());
+
+            if (node.AreaID >= 0)
+                continue;
+
+            // tag the node
+            node.AreaID = areaID;
+            ++areaSize;
+
+            // add in any neighbours
+            if (node.HasNeighbour_N)
+                FloodFillArea_Helper(node, pathdata, GridHelpers.Step_North, nodesToProcess, flaggedForProcessing);
+            if (node.HasNeighbour_NE)
+                FloodFillArea_Helper(node, pathdata, GridHelpers.Step_NorthEast, nodesToProcess, flaggedForProcessing);
+            if (node.HasNeighbour_E)
+                FloodFillArea_Helper(node, pathdata, GridHelpers.Step_East, nodesToProcess, flaggedForProcessing);
+            if (node.HasNeighbour_SE)
+                FloodFillArea_Helper(node, pathdata, GridHelpers.Step_SouthEast, nodesToProcess, flaggedForProcessing);
+            if (node.HasNeighbour_S)
+                FloodFillArea_Helper(node, pathdata, GridHelpers.Step_South, nodesToProcess, flaggedForProcessing);
+            if (node.HasNeighbour_SW)
+                FloodFillArea_Helper(node, pathdata, GridHelpers.Step_SouthWest, nodesToProcess, flaggedForProcessing);
+            if (node.HasNeighbour_W)
+                FloodFillArea_Helper(node, pathdata, GridHelpers.Step_West, nodesToProcess, flaggedForProcessing);
+            if (node.HasNeighbour_NW)
+                FloodFillArea_Helper(node, pathdata, GridHelpers.Step_NorthWest, nodesToProcess, flaggedForProcessing);
+        }
+
+        return areaSize;
+    }
+
+    void FloodFillArea_Helper(PathdataNode currentNode, Pathdata pathdata, Vector3Int offset, 
+                              Queue<Vector3Int> nodesToProcess, bool[] flaggedForProcessing)
+    {
+        var neighbour = pathdata.GetNode(currentNode.GridPos + offset);
+        var neighbourIndex = neighbour.GridPos.x + neighbour.GridPos.y * pathdata.Dimensions.x;
+
+        // if already flagged then ignore
+        if (flaggedForProcessing[neighbourIndex])
+            return;
+
+        // if already processed then ignore
+        if (neighbour.AreaID < 0)
+        {
+            nodesToProcess.Enqueue(neighbour.GridPos);
+            flaggedForProcessing[neighbourIndex] = true;
+        }        
     }
 }
