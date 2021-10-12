@@ -10,7 +10,8 @@ public class PathdataSetPropertyDrawer : PropertyDrawer
     {
         EditorGUI.BeginProperty(position, label, property);
 
-        
+        var resolutionProp = property.FindPropertyRelative("Resolution");
+        EditorGUI.PropertyField(position, resolutionProp);
 
         property.serializedObject.ApplyModifiedProperties();
         EditorGUI.EndProperty();
