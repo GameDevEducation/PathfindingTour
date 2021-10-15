@@ -49,6 +49,8 @@ public class PathdataNode
     public ENeighbourFlags NeighbourFlags;
     public int AreaID;
 
+    public int UniqueID;
+
     public bool IsBoundary => Attributes.HasFlag(EPathdataNodeAttributes.IsBoundary);
     public bool IsWalkable => Attributes.HasFlag(EPathdataNodeAttributes.Walkable);
     public bool IsWater => Attributes.HasFlag(EPathdataNodeAttributes.HasWater);
@@ -66,6 +68,8 @@ public class PathdataNode
 [System.Serializable]
 public class Pathdata : ScriptableObject, ISerializationCallbackReceiver
 {
+    public string UniqueID;
+
     public EResolution Resolution = EResolution.NodeSize_1x1;
     public Vector2Int Dimensions;
     public Vector3 CellSize;
@@ -76,8 +80,9 @@ public class Pathdata : ScriptableObject, ISerializationCallbackReceiver
 
     [System.NonSerialized] public PathdataNode[] Nodes;
 
-    public void Initialise(EResolution _Resolution, Vector2Int _Dimensions, Vector3 _CellSize)
+    public void Initialise(string _UniqueID, EResolution _Resolution, Vector2Int _Dimensions, Vector3 _CellSize)
     {
+        UniqueID = _UniqueID;
         Resolution = _Resolution;
         Dimensions = _Dimensions;
         CellSize = _CellSize;
@@ -91,6 +96,7 @@ public class Pathdata : ScriptableObject, ISerializationCallbackReceiver
     {
         int nodeIndex = column + (row * Dimensions.x);
 
+        Nodes[nodeIndex].UniqueID = nodeIndex;
         Nodes[nodeIndex].GridPos = new Vector3Int(column, row, 0);
         Nodes[nodeIndex].WorldPos = worldPos;
         Nodes[nodeIndex].Attributes = attributes;
@@ -105,6 +111,7 @@ public class Pathdata : ScriptableObject, ISerializationCallbackReceiver
         {
             Nodes[index] = new PathdataNode();
 
+            Nodes[index].UniqueID = index;
             Nodes[index].Attributes = Attributes[index];
             Nodes[index].NeighbourFlags = NeighbourFlags[index];
             Nodes[index].AreaID = AreaIDs[index];
@@ -140,6 +147,24 @@ public class Pathdata : ScriptableObject, ISerializationCallbackReceiver
             Heights[index] = Nodes[index].WorldPos.y;
             AreaIDs[index] = Nodes[index].AreaID;
         }
+    }
+
+    public PathdataNode GetNode(int uniqueID)
+    {
+        if (uniqueID < 0 || uniqueID >= Nodes.Length)
+            return null;
+
+        int column = uniqueID % Dimensions.x;
+        int row = (uniqueID - column) / Dimensions.x;
+        return GetNode(row, column);
+    }
+
+    public PathdataNode GetNode(Vector3 worldPos)
+    {
+        int row = Mathf.FloorToInt((worldPos.x / CellSize.x) - 0.5f);
+        int column = Mathf.FloorToInt((worldPos.z / CellSize.z) - 0.5f);
+
+        return GetNode(row, column);
     }
 
     public PathdataNode GetNode(Vector3Int gridPos)

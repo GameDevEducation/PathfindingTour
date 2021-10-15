@@ -12,6 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: a8089a152997a4149900d950ca595662, type: 3}
   m_Name: Pathfinding Scene_Pathdata_1
   m_EditorClassIdentifier: 
+  UniqueID: Vehicle_4x4
   Resolution: 4
   Dimensions: {x: 256, y: 256}
   CellSize: {x: 3.90625, y: 600, z: 3.90625}

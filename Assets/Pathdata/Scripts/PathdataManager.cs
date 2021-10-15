@@ -18,6 +18,7 @@ public enum EResolution
 [System.Serializable]
 public class PathdataSet
 {
+    public string UniqueID;
     public EResolution Resolution = EResolution.NodeSize_1x1;
     public float SlopeLimit = 45f;
     public bool CanUseWater = false;
@@ -38,6 +39,20 @@ public class PathdataManager : MonoBehaviour
 
     [SerializeField] float WaterHeight = 15f;
 
+    public static PathdataManager Instance { get; private set; } = null;
+
+    void Awake()
+    {
+        if (Instance != null)
+        {
+            Debug.LogError("Found duplicate PathdataManager on " + gameObject.name);
+            Destroy(gameObject);
+            return;
+        }
+
+        Instance = this;
+    }
+
     // Start is called before the first frame update
     void Start()
     {
@@ -48,6 +63,17 @@ public class PathdataManager : MonoBehaviour
     void Update()
     {
         
+    }
+
+    public Pathdata GetPathdata(string uniqueID)
+    {
+        foreach(var pathdataSet in PathdataSets)
+        {
+            if (pathdataSet.UniqueID == uniqueID)
+                return pathdataSet.Data;
+        }
+
+        return null;
     }
 
     #if UNITY_EDITOR
@@ -172,7 +198,7 @@ public class PathdataManager : MonoBehaviour
         nodeSize.x *= (int)pathdataSet.Resolution;
         nodeSize.z *= (int)pathdataSet.Resolution;
 
-        pathdata.Initialise(pathdataSet.Resolution, new Vector2Int(pathdataSize, pathdataSize), nodeSize);
+        pathdata.Initialise(pathdataSet.UniqueID, pathdataSet.Resolution, new Vector2Int(pathdataSize, pathdataSize), nodeSize);
 
         Internal_BuildPathdata(pathdata, pathdataSet, pathdataSize, nodeSize);
 
