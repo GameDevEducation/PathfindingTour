@@ -4,9 +4,10 @@ using UnityEngine;
 
 public class PathfindTester : MonoBehaviour
 {
-    public string PathdataUID;
-    public Transform StartMarker;
-    public Transform EndMarker;
+    [SerializeField] string PathdataUID;
+    [SerializeField] Transform StartMarker;
+    [SerializeField] Transform EndMarker;
+    [SerializeField] bool FilterPaths = true;
 
     System.Diagnostics.Stopwatch asyncPathfindTimer = new System.Diagnostics.Stopwatch();
 
@@ -31,9 +32,16 @@ public class PathfindTester : MonoBehaviour
 
         if (path != null)
         {
-            foreach (var pathNode in path)
+            if (FilterPaths)
+                PathfindingManager.Instance.OptimisePath(PathdataUID, path);
+
+            for (int index = 0; index < path.Count - 1; ++index)
             {
-                Debug.DrawLine(pathNode.WorldPos, pathNode.WorldPos + 5f * Vector3.up + Vector3.forward, Color.cyan, 600f);
+                Vector3 node1Pos = path[index].WorldPos;
+                Vector3 node2Pos = path[index + 1].WorldPos;
+
+                Debug.DrawLine(node1Pos + Vector3.up, node2Pos + Vector3.up, Color.cyan, 600f);
+                Debug.DrawLine(node1Pos, node1Pos + Vector3.up, Color.white, 600f);
             }
         }
     }
@@ -56,9 +64,16 @@ public class PathfindTester : MonoBehaviour
 
         if (path != null)
         {
-            foreach (var pathNode in path)
+            if (FilterPaths)
+                PathfindingManager.Instance.OptimisePath(PathdataUID, path);
+
+            for (int index = 0; index < path.Count - 1; ++index)
             {
-                Debug.DrawLine(pathNode.WorldPos, pathNode.WorldPos + 5f * Vector3.up, Color.magenta, 600f);
+                Vector3 node1Pos = path[index].WorldPos;
+                Vector3 node2Pos = path[index + 1].WorldPos;
+
+                Debug.DrawLine(node1Pos + Vector3.up, node2Pos + Vector3.up, Color.magenta, 600f);
+                Debug.DrawLine(node1Pos, node1Pos + Vector3.up, Color.white, 600f);
             }
         }
     }

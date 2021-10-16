@@ -229,6 +229,110 @@ public class PathfindingManager : MonoBehaviour
         GridHelpers.Step_NorthWest
     };
 
+    public bool OptimisePath(string pathDataUID, List<PathdataNode> path)
+    {
+        // retrieve the pathdata
+        var pathdata = PathdataManager.Instance.GetPathdata(pathDataUID);
+        if (pathdata == null)
+        {
+            Debug.LogError("Could not retrieve pathdata " + pathDataUID);
+            return false;
+        }
+
+        int currentNode = 0;
+        while(currentNode < (path.Count - 1))
+        {
+            // scan ahead for reachable node
+            int farthestReachableNode = currentNode + 1;
+            for (int nextNode = currentNode + 2; nextNode < (path.Count - 1); ++nextNode)
+            {
+                if (CanWalkBetween(pathdata, path[currentNode], path[nextNode]))
+                    farthestReachableNode = nextNode;
+                else
+                    break;
+            }
+
+            // check if there are nodes to remove
+            int numNodes = farthestReachableNode - currentNode - 1;
+            if (numNodes > 0)
+                path.RemoveRange(currentNode + 1, numNodes);
+
+            ++currentNode;
+        }
+
+        return true;
+    }
+
+    public bool CanWalkBetween(string pathDataUID, PathdataNode start, PathdataNode end)
+    {
+        // retrieve the pathdata
+        var pathdata = PathdataManager.Instance.GetPathdata(pathDataUID);
+        if (pathdata == null)
+        {
+            Debug.LogError("Could not retrieve pathdata " + pathDataUID);
+            return false;
+        }
+
+        return CanWalkBetween(pathdata, start, end);
+    }
+
+    // Based on Bresenham's Line Drawing Algorithm from: https://iq.opengenus.org/bresenham-line-drawining-algorithm/
+    public bool CanWalkBetween(Pathdata pathdata, PathdataNode start, PathdataNode end)
+    {
+        int deltaX = Mathf.Abs(end.GridPos.x - start.GridPos.x);
+        int deltaY = Mathf.Abs(end.GridPos.y - start.GridPos.y);
+
+        // primarily moving in x?
+        if (deltaX > deltaY)
+        {
+            var workingStart = start.GridPos.x < end.GridPos.x ? start : end;
+            var workingEnd = start.GridPos.x < end.GridPos.x ? end : start;
+
+            int y = workingStart.GridPos.y;
+            int D = 2 * deltaY - deltaX;
+
+            for (int x = workingStart.GridPos.x; x <= workingEnd.GridPos.x; ++x)
+            {
+                // point is not walkable?
+                if (!pathdata.GetNode(y, x).IsWalkable)
+                    return false;
+                
+                if (D < 0)
+                    D += 2 * deltaY;
+                else
+                {
+                    ++y;
+                    D += 2 * deltaY - 2 * deltaX;
+                }
+            }
+        } // primarily moving in y
+        else
+        {
+            var workingStart = start.GridPos.y < end.GridPos.y ? start : end;
+            var workingEnd = start.GridPos.y < end.GridPos.y ? end : start;
+
+            int x = workingStart.GridPos.x;
+            int D = 2 * deltaX - deltaY;
+
+            for (int y = workingStart.GridPos.y; y <= workingEnd.GridPos.y; ++y)
+            {
+                // point is not walkable?
+                if (!pathdata.GetNode(y, x).IsWalkable)
+                    return false;
+
+                if (D < 0)
+                    D += 2 * deltaX;
+                else
+                {
+                    ++x;
+                    D += 2 * deltaX - 2 * deltaY;
+                }
+            }
+        }
+
+        return true;
+    }
+
     public EPathfindResult RequestPath_Asynchronous(string pathDataUID, Vector3 startPos, Vector3 endPos,
                                                     System.Func<PathdataNode, PathdataNode, float> calculateCost,
                                                     System.Action<List<PathdataNode>, EPathfindResult> onComplete)

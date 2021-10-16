@@ -52,7 +52,7 @@ public class PathdataNode : System.IEquatable<PathdataNode>
     public int UniqueID;
 
     public bool IsBoundary => Attributes.HasFlag(EPathdataNodeAttributes.IsBoundary);
-    public bool IsWalkable => Attributes.HasFlag(EPathdataNodeAttributes.Walkable);
+    public bool IsWalkable => !IsWater && Attributes.HasFlag(EPathdataNodeAttributes.Walkable);
     public bool IsWater => Attributes.HasFlag(EPathdataNodeAttributes.HasWater);
 
     public bool HasNeighbour_N => NeighbourFlags.HasFlag(ENeighbourFlags.North);
