@@ -41,7 +41,7 @@ public static class GridHelpers
     public static Vector3Int Step_NorthWest = new Vector3Int(-1, 1, 0);
 }
 
-public class PathdataNode
+public class PathdataNode : System.IEquatable<PathdataNode>
 {
     public Vector3 WorldPos;
     public Vector3Int GridPos;
@@ -63,6 +63,31 @@ public class PathdataNode
     public bool HasNeighbour_SW => NeighbourFlags.HasFlag(ENeighbourFlags.SouthWest);
     public bool HasNeighbour_W => NeighbourFlags.HasFlag(ENeighbourFlags.West);
     public bool HasNeighbour_NW => NeighbourFlags.HasFlag(ENeighbourFlags.NorthWest);
+
+    public override bool Equals(object obj)
+    {
+        return Equals(obj as PathdataNode);
+    }
+
+    public bool Equals(PathdataNode other)
+    {
+        return other != null && other.UniqueID == UniqueID;
+    }
+    
+    public override int GetHashCode()
+    {
+        return UniqueID.GetHashCode();
+    }
+
+    public static bool operator == (PathdataNode lhs, PathdataNode rhs)
+    {
+        return EqualityComparer<PathdataNode>.Default.Equals(lhs, rhs);
+    }
+
+    public static bool operator != (PathdataNode lhs, PathdataNode rhs)
+    {
+        return !(lhs == rhs);
+    }
 }
 
 [System.Serializable]

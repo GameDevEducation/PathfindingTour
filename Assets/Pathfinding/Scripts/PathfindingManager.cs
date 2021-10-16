@@ -2,6 +2,44 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
+public enum EPathfindResult
+{
+    NoPathdata,
+    StartInvalid,
+    EndInvalid,
+    UnlinkedAreas,
+    BudgetExhausted,
+    NoPathFound,
+
+    ContextPrepared,
+    PathfindingInProgress,
+
+    PathFound
+}
+
+public class OpenListComparer : IComparer<PathdataNode>
+{
+    PathfindingContext LinkedContext;
+
+    public OpenListComparer(PathfindingContext _LinkedContext)
+    {
+        LinkedContext = _LinkedContext;
+    }
+
+    public int Compare(PathdataNode node1, PathdataNode node2)
+    {
+        float node1F = LinkedContext.GetFCost(node1);
+        float node2F = LinkedContext.GetFCost(node2);
+
+        if (node1F < node2F)
+            return -1;
+        else if (node1F > node2F)
+            return 1;
+
+        return node1.UniqueID.CompareTo(node2.UniqueID);
+    }
+}
+
 public class PathfindingContext
 {
     [System.Flags]
@@ -16,14 +54,30 @@ public class PathfindingContext
     float[] GCosts;
     float[] HCosts;
     int[] ParentIDs;
-    public int NumIterations { get; private set; }= 0;
 
-    List<PathdataNode> OpenList = new List<PathdataNode>();
+    public int NumIterations { get; private set; } = 0;
+    public PathdataNode EndNode { get; private set; } = null;
+    public Pathdata LinkedPathdata { get; private set; } = null;
+
+    public System.Func<PathdataNode, PathdataNode, float> CalculateCost;
+    public System.Action<List<PathdataNode>, EPathfindResult> OnComplete;
+
+    SortedSet<PathdataNode> OpenList;
 
     public bool OpenListNotEmpty => OpenList.Count > 0;
+    public int IterationBudgetTotal { get; private set; } = 0;
+    public int IterationBudgetPerFrame { get; private set; } = 0;
 
-    public PathfindingContext(int numNodes)
+    public PathfindingContext(int iterationBudgetTotal, int iterationBudgetPerFrame, int numNodes, 
+                              PathdataNode _EndNode, Pathdata _LinkedPathdata,
+                              System.Func<PathdataNode, PathdataNode, float> _CalculateCost)
     {
+        IterationBudgetTotal = iterationBudgetTotal;
+        IterationBudgetPerFrame = iterationBudgetPerFrame;
+        EndNode = _EndNode;
+        LinkedPathdata = _LinkedPathdata;
+        CalculateCost = _CalculateCost;
+
         Statuses = new ENodeStatus[numNodes];
         GCosts = new float[numNodes];
         HCosts = new float[numNodes];
@@ -32,25 +86,30 @@ public class PathfindingContext
         // initialise our data
         for (int index = 0; index < numNodes; ++index)
         {
-            GCosts[index] = HCosts[index] = float.MaxValue;
             ParentIDs[index] = -1;
         }
+
+        OpenList = new SortedSet<PathdataNode>(new OpenListComparer(this));
     }
 
     public void OpenNode(PathdataNode node, float gCost, float hCost, int parentID)
     {
-        OpenList.Add(node);
-
         Statuses[node.UniqueID] = ENodeStatus.Open;
         GCosts[node.UniqueID] = gCost;
         HCosts[node.UniqueID] = hCost;
         ParentIDs[node.UniqueID] = parentID;
+
+        OpenList.Add(node);
     }
 
     public void UpdateOpenNode(PathdataNode node, float gCost, int parentID)
     {
+        OpenList.Remove(node);
+
         GCosts[node.UniqueID] = gCost;
         ParentIDs[node.UniqueID] = parentID;
+
+        OpenList.Add(node);
     }
 
     public void MoveToClosed(PathdataNode node)
@@ -88,30 +147,25 @@ public class PathfindingContext
     {
         ++NumIterations;
 
-        float bestFCost = float.MaxValue;
-        PathdataNode bestNode = null;
-        for (int index = 0; index < OpenList.Count; ++index)
-        {
-            float nodeCost = GetFCost(OpenList[index]);
-
-            if (nodeCost < bestFCost)
-            {
-                bestFCost = nodeCost;
-                bestNode = OpenList[index];
-            }
-        }
-
-        return bestNode;
+        return OpenList.Min;
     }
+}
+
+[System.Serializable]
+public class PathfindingConfig
+{
+    public int IterationBudgetPerCell = 20;
+    public int IterationsPerTick = 1;
 }
 
 public class PathfindingManager : MonoBehaviour
 {
     public static PathfindingManager Instance { get; private set; } = null;
 
-    public string PathdataUID;
-    public Transform StartMarker;
-    public Transform EndMarker;
+    [SerializeField] PathfindingConfig AsynchronousConfig;
+    [SerializeField] PathfindingConfig SynchronousConfig;
+
+    List<PathfindingContext> AsynchronousPathfinds = new List<PathfindingContext>();
 
     void Awake()
     {
@@ -127,27 +181,30 @@ public class PathfindingManager : MonoBehaviour
 
     void Start()
     {
-        System.Diagnostics.Stopwatch pathfindingTimer = new System.Diagnostics.Stopwatch();
 
-        pathfindingTimer.Start();
-        var path = RequestPath(PathdataUID, StartMarker.position, EndMarker.position, 
-                    delegate (PathdataNode current, PathdataNode destination)
-                    {
-                        return Vector3.Distance(current.WorldPos, destination.WorldPos);
-                    });
-        pathfindingTimer.Stop();
-
-        Debug.Log(pathfindingTimer.ElapsedMilliseconds);
-
-        foreach(var pathNode in path)
-        {
-            Debug.DrawLine(pathNode.WorldPos, pathNode.WorldPos + 5f * Vector3.up, Color.magenta, 600f);
-        }
     }
 
     // Update is called once per frame
     void Update()
     {
+        // tick all of the pathfinds in progress
+        for (int index = 0; index < AsynchronousPathfinds.Count; ++index)
+        {
+            var context = AsynchronousPathfinds[index];
+
+            // tick the pathfinding
+            List<PathdataNode> path;
+            var result = PerformPathfind(context, out path);
+
+            // was the pathfind successful?
+            if (result != EPathfindResult.PathfindingInProgress)
+            {
+                context.OnComplete.Invoke(path, result);
+                AsynchronousPathfinds.RemoveAt(0);
+
+                --index;
+            }
+        }
     }
 
     ENeighbourFlags[] NeighboursToCheck = new ENeighbourFlags[] {
@@ -172,14 +229,58 @@ public class PathfindingManager : MonoBehaviour
         GridHelpers.Step_NorthWest
     };
 
-    public List<PathdataNode> RequestPath(string pathDataUID, Vector3 startPos, Vector3 endPos, System.Func<PathdataNode, PathdataNode, float> calculateCost)
+    public EPathfindResult RequestPath_Asynchronous(string pathDataUID, Vector3 startPos, Vector3 endPos,
+                                                    System.Func<PathdataNode, PathdataNode, float> calculateCost,
+                                                    System.Action<List<PathdataNode>, EPathfindResult> onComplete)
     {
+        // prepare the pathfind
+        PathfindingContext context;
+        var result = PreparePathfind(AsynchronousConfig, pathDataUID, startPos, endPos, calculateCost, out context);
+
+        // context failed to be setup
+        if (result != EPathfindResult.ContextPrepared)
+        {
+            return result;
+        }
+
+        context.OnComplete = onComplete;
+
+        AsynchronousPathfinds.Add(context);
+
+        return EPathfindResult.PathfindingInProgress;
+    }
+
+    public EPathfindResult RequestPath_Synchronous(string pathDataUID, Vector3 startPos, Vector3 endPos, 
+                                                   System.Func<PathdataNode, PathdataNode, float> calculateCost,
+                                                   out List<PathdataNode> foundPath)
+    {
+        // prepare the pathfind
+        PathfindingContext context;
+        var result = PreparePathfind(SynchronousConfig, pathDataUID, startPos, endPos, calculateCost, out context);
+
+        // context failed to be setup
+        if (result != EPathfindResult.ContextPrepared)
+        {
+            foundPath = null;
+            return result;
+        }
+
+        return PerformPathfind(context, out foundPath);
+    }
+
+    EPathfindResult PreparePathfind(PathfindingConfig configuration,
+                                    string pathDataUID, Vector3 startPos, Vector3 endPos,
+                                    System.Func<PathdataNode, PathdataNode, float> calculateCost,
+                                    out PathfindingContext context)
+    {
+        context = null;
+
         // retrieve the pathdata
         var pathdata = PathdataManager.Instance.GetPathdata(pathDataUID);
         if (pathdata == null)
         {
             Debug.LogError("Could not retrieve pathdata " + pathDataUID);
-            return null;
+            return EPathfindResult.NoPathdata;
         }
 
         // retrieve the start node
@@ -187,7 +288,7 @@ public class PathfindingManager : MonoBehaviour
         if (startNode == null)
         {
             Debug.LogError("Failed to retrieve node at " + startPos);
-            return null;
+            return EPathfindResult.StartInvalid;
         }
 
         // retrieve the end node
@@ -195,41 +296,66 @@ public class PathfindingManager : MonoBehaviour
         if (endNode == null)
         {
             Debug.LogError("Failed to retrieve node at " + endPos);
-            return null;
+            return EPathfindResult.EndInvalid;
         }
 
         // check the area ids
         if (startNode.AreaID != endNode.AreaID || startNode.AreaID < 1 || endNode.AreaID < 1)
         {
             Debug.Log("No path exists");
-            return null;
+            return EPathfindResult.UnlinkedAreas;
         }
 
+        // calculate our budget
+        int nodeBudget = Mathf.CeilToInt((endNode.GridPos - startNode.GridPos).magnitude) * configuration.IterationBudgetPerCell;
+
         // setup the context
-        PathfindingContext context = new PathfindingContext(pathdata.Nodes.Length);
+        context = new PathfindingContext(nodeBudget, configuration.IterationsPerTick, pathdata.Nodes.Length, endNode, pathdata, calculateCost);
 
         // open the start node
         context.OpenNode(startNode, 0f, calculateCost(startNode, endNode), -1);
 
+        return EPathfindResult.ContextPrepared;
+    }
+
+    EPathfindResult PerformPathfind(PathfindingContext context, out List<PathdataNode> foundPath)
+    {
+        foundPath = null;
+
         // loop while we have nodes to explore
+        int numIterations = 0;
         while (context.OpenListNotEmpty)
         {
             PathdataNode bestNode = context.GetBestNode();
+            ++numIterations;
 
             // reached destination?
-            if (bestNode == endNode)
+            if (bestNode == context.EndNode)
             {
-                List<PathdataNode> foundPath = new List<PathdataNode>();
+                foundPath = new List<PathdataNode>();
 
                 while (bestNode != null)
                 {
                     foundPath.Insert(0, bestNode);
 
-                    bestNode = pathdata.GetNode(context.GetParentID(bestNode));
+                    bestNode = context.LinkedPathdata.GetNode(context.GetParentID(bestNode));
                 }
 
                 Debug.Log("Path found in " + context.NumIterations + " iterations");
-                return foundPath;
+                return EPathfindResult.PathFound;
+            }
+
+            // reached our limit for this frame
+            if (context.IterationBudgetPerFrame > 0 && numIterations > context.IterationBudgetPerFrame)
+            {
+                return EPathfindResult.PathfindingInProgress;
+            }
+
+            // reached our total budget?
+            if (context.NumIterations >= context.IterationBudgetTotal)
+            {
+                Debug.LogError("Reached iteration budget of " + context.IterationBudgetTotal);
+                return EPathfindResult.BudgetExhausted;
             }
 
             // move to the closed list
@@ -241,7 +367,7 @@ public class PathfindingManager : MonoBehaviour
                 if (!bestNode.NeighbourFlags.HasFlag(NeighboursToCheck[neighbourIndex]))
                     continue;
 
-                PathdataNode neighbour = pathdata.GetNode(bestNode.GridPos + NeighbourOffsets[neighbourIndex]);
+                PathdataNode neighbour = context.LinkedPathdata.GetNode(bestNode.GridPos + NeighbourOffsets[neighbourIndex]);
 
                 // ignore if closed
                 if (context.IsNodeClosed(neighbour))
@@ -251,7 +377,7 @@ public class PathfindingManager : MonoBehaviour
                 if (context.IsNodeOpen(neighbour))
                 {
                     // calculate the cost to reach the neighbour
-                    float gCost = context.GetGCost(bestNode) + calculateCost(bestNode, neighbour);
+                    float gCost = context.GetGCost(bestNode) + context.CalculateCost(bestNode, neighbour);
 
                     // have we found a shorter path?
                     if (gCost < context.GetGCost(neighbour))
@@ -260,15 +386,15 @@ public class PathfindingManager : MonoBehaviour
                 else
                 {
                     // calculate the cost to reach the neighbour
-                    float gCost = context.GetGCost(bestNode) + calculateCost(bestNode, neighbour);
+                    float gCost = context.GetGCost(bestNode) + context.CalculateCost(bestNode, neighbour);
 
-                    context.OpenNode(neighbour, gCost, calculateCost(neighbour, endNode), bestNode.UniqueID);
+                    context.OpenNode(neighbour, gCost, context.CalculateCost(neighbour, context.EndNode), bestNode.UniqueID);
                 }
             }
         }
 
         Debug.LogError("No path could be found");
 
-        return null;
+        return EPathfindResult.NoPathFound;
     }
 }
